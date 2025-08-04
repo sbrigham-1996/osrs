@@ -15,19 +15,53 @@ class Overlay(tk.Tk):
         super().__init__()
         self.title("OSRS Bot")
         self.attributes('-topmost', True)
-        self.geometry('200x90+20+40')
+        self.geometry('220x140+20+40')
         self.resizable(False, False)
         self.configure(bg='#111')
+        self.start_time = time.time()
+        self.total_logs = 0
+        self.current_logs = 0
         self.lbl_state = tk.Label(self, text='Idle', fg='#7cf', bg='#111', font=('Helvetica', 12))
-        self.lbl_state.pack(pady=(8, 2))
+        self.lbl_state.pack(pady=(6, 1))
+
+        self.lbl_runtime = tk.Label(self, text='Run time: 00:00:00',
+                                    fg='#ccc', bg='#111', font=('Helvetica', 10))
+        self.lbl_runtime.pack()
         self.lbl_inv = tk.Label(self, text='Logs: 0/28', fg='#ccc', bg='#111', font=('Helvetica', 10))
         self.lbl_inv.pack()
+        self.lbl_total = tk.Label(self, text='Total Logs: 0', fg='#ccc',
+                                  bg='#111', font=('Helvetica', 10))
+        self.lbl_exp = tk.Label(self, text='XP/hr: 0', fg='#ccc',
+                                bg='#111', font=('Helvetica', 10))
+        self.lbl_exp.pack()
     def set_state(self, txt: str):
         self.lbl_state.config(text=txt)
         self.update_idletasks()
-    def set_inv(self, n: int, total: int = 28):
-        self.lbl_inv.config(text=f'Logs: {n}/{total}')
+    def update_runtime(self):
+        """Update the runtime label in HH:MM:SS format."""
+        elapsed = time.time() -self.start_time
+        hours = int(elapsed // 3600)
+        minutes = int((elapsed % 3600) // 60)
+        seconds = int(elapsed % 60)
+        self.lbl_runtime.config(text=f'Run Time: {hours:02d}:{minutes:02d}:{seconds:02d}')
+    def update_stats(self):
+        """Refresh runtime, total logs and XP/hr based on current counters."""
+        self.update_runtime()
+        self.lbl_total.config(text=f'Total Logs: {self.total_logs}')
+        elapsed_hours = max((time.time() - self.start_time) / 3600.0, 1e-6)
+        xp = (self.total_logs + self.current_logs) * 100.0
+        xp_per_hour = xp / elapsed_hours
+        self.lbl_exp.config(text=f'XP/hr: {int(xp_per_hour)}')
         self.update_idletasks()
+
+    def set_inv(self, n: int, total: int = 28):
+        """
+        Update the current inventory count. This will also refresh related
+        statistics such as runtime and XP/hour.
+        """
+        self.current_logs = n
+        self.lbl_inv.config(text=f'Logs: {n}/{total}')
+        self.update_stats()
 
 # ---------- Paths ----------
 BASE_DIR = Path(__file__).resolve().parent
@@ -48,7 +82,7 @@ TREE_TEMPLATES = [ASSETS_DIR / "trees" / f"tree{i}.png" for i in range(1, 4)]
 
 # Inventory detection region (top-left x,y + width,height)
 # You gave: top-left=(996,260), top-right=(1171,513) -> we use (996,260,175,253)
-INV_REGION = (1113, 249, 182, 269)  # (x, y, w, h) – previously working crop
+INV_REGION = (840, 260, 180, 255)  # (x, y, w, h) – previously working crop
 
 # Candidate log icons (first one found will be used)
 LOG_ICON_CANDIDATES = [
@@ -322,10 +356,17 @@ def chop_trees_until_full(overlay=None):
             overlay.set_state(f'Chopping tree {idx+1}')
         # Chop for 19 seconds at this tree
         for _ in range(19):
+            if overlay:
+                # Update inventory count and stats (detect_log_count is used
+                # even though it is relatively expensive; update once per second).
+                overlay.set_inv(detect_log_count())
             if inventory_full():
                 break
             time.sleep(1)
     print("→ Inventory full after chopping.")
+    # After loop exit, update overlay with full inventory count (should be 28).
+    if overlay:
+        overlay.set_inv(detect_log_count())
 
 def click_reset_spot():
     print("→ Clicking reset spot…")
@@ -351,6 +392,7 @@ def bank_and_deposit(overlay=None):
                 break
         time.sleep(0.25)
     print("→ Clicking deposit all…")
+    logs_before = detect_log_count()
     for i in range(3):
         if click_image(DEPOSIT_ICON_PATH, confidence=0.7):
             time.sleep(0.25)
@@ -360,6 +402,7 @@ def bank_and_deposit(overlay=None):
     if inventory_empty():
         print("→ Deposit complete.")
         if overlay:
+            overlay.total_logs += logs_before
             overlay.set_inv(0)
             overlay.set_state('Deposited')
     else:
