@@ -27,7 +27,7 @@ class Overlay(tk.Tk):
         self.lbl_runtime = tk.Label(self, text='Run time: 00:00:00',
                                     fg='#ccc', bg='#111', font=('Helvetica', 10))
         self.lbl_runtime.pack()
-        self.lbl_inv = tk.Label(self, text='Logs: 0/28', fg='#ccc', bg='#111', font=('Helvetica', 10))
+        self.lbl_inv = tk.Label(self, text='Logs: 0/27', fg='#ccc', bg='#111', font=('Helvetica', 10))
         self.lbl_inv.pack()
         self.lbl_total = tk.Label(self, text='Total Logs: 0', fg='#ccc',
                                   bg='#111', font=('Helvetica', 10))
@@ -54,7 +54,7 @@ class Overlay(tk.Tk):
         self.lbl_exp.config(text=f'XP/hr: {int(xp_per_hour)}')
         self.update_idletasks()
 
-    def set_inv(self, n: int, total: int = 28):
+    def set_inv(self, n: int, total: int = 27):
         """
         Update the current inventory count. This will also refresh related
         statistics such as runtime and XP/hour.
@@ -72,6 +72,9 @@ BANK_MARKER        = ASSETS_DIR / "minimap" / "BANK_MINIMAP_MARKER.png"
 BANKER_ICON_PATH   = ASSETS_DIR / "actions" / "BANKER_ICON_PATH.png"
 BANKER_ICON_PATH2   = ASSETS_DIR / "actions" / "BANKER_ICON_PATH2.png"
 DEPOSIT_ICON_PATH  = ASSETS_DIR / "actions" / "DEPOSIT_ICON_PATH.png"
+
+# Fletching tool
+KNIFE_ICON_PATH = ASSETS_DIR / "actions" / "knife.png"
 
 # Reset ground spot for click reset
 RESET_GROUND_PATH = ASSETS_DIR / "ground" / "reset.png"
@@ -312,7 +315,7 @@ def detect_log_count(
 
     return count
 
-def inventory_full(threshold: int = 28) -> bool:
+def inventory_full(threshold: int = 27) -> bool:
     """True if at least `threshold` slots look like logs."""
     return detect_log_count() >= threshold
 
@@ -391,6 +394,28 @@ def bank_and_deposit(overlay=None):
             if wait_for_image(DEPOSIT_ICON_PATH, timeout=7, confidence=0.7):
                 break
         time.sleep(0.25)
+    # Close bank UI to fletch logs (knife already in inventory)
+    pyautogui.press('esc')
+    time.sleep(0.5)
+    # Fletch all logs in inventory
+    print("→ Fletching logs…")
+    log_count = detect_log_count()
+    for _ in range(log_count):
+        # Select knife in inventory
+        knife_pt = locate_image(KNIFE_ICON_PATH, confidence=0.7, region=INV_REGION)
+        if knife_pt:
+            click_point(knife_pt)
+            time.sleep(0.1)
+        # Click on a log to fletch
+        log_pt = locate_image(LOG_ICON_CANDIDATES[0], confidence=0.7, region=INV_REGION)
+        if log_pt:
+            click_point(log_pt)
+            time.sleep(0.1)
+    time.sleep(1)
+    # Re-open bank to deposit fletched items
+    print("→ Re-opening bank to deposit…")
+    click_minimap_marker(BANK_MARKER, label="BANK", tries=8, confidence_sequence=(0.72, 0.62, 0.54))
+    time.sleep(random.uniform(10.5, 13.5))
     print("→ Clicking deposit all…")
     logs_before = detect_log_count()
     for i in range(3):
@@ -418,7 +443,21 @@ def main_loop(overlay):
         time.sleep(settle_time)
         time.sleep(1)
         chop_trees_until_full(overlay=overlay)
-        click_reset_spot()
+        click_reset_spot(overlay=overlay)
+        # Fletch logs here before running to bank (knife in slot #1)
+        overlay.set_state('Fletching logs post-reset…')
+        print("→ Fletching logs post-reset…")
+        log_count = detect_log_count()
+        for _ in range(log_count):
+            knife_pt = locate_image(KNIFE_ICON_PATH, confidence=0.7, region=INV_REGION)
+            if knife_pt:
+                click_point(knife_pt)
+                time.sleep(0.1)
+            log_pt = locate_image(LOG_ICON_CANDIDATES[0], confidence=0.7, region=INV_REGION)
+            if log_pt:
+                click_point(log_pt)
+                time.sleep(0.1)
+        time.sleep(1)
         run_to_bank(overlay=overlay)
         bank_and_deposit(overlay=overlay)
 
